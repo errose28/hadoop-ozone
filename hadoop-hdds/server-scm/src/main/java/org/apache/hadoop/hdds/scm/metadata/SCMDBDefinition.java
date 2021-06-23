@@ -143,6 +143,15 @@ public class SCMDBDefinition implements DBDefinition {
           Long.class,
           new LongCodec());
 
+  public static final DBColumnFamilyDefinition<String, String>
+      META =
+      new DBColumnFamilyDefinition<>(
+          "sequenceId",
+          String.class,
+          new StringCodec(),
+          String.class,
+          new StringCodec());
+
   @Override
   public String getName() {
     return "scm.db";

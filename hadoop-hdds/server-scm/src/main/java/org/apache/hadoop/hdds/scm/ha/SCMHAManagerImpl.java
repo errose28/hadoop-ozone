@@ -21,10 +21,13 @@ import com.google.common.base.Preconditions;
 import org.apache.hadoop.hdds.conf.ConfigurationSource;
 import org.apache.hadoop.hdds.conf.OzoneConfiguration;
 import org.apache.hadoop.hdds.scm.AddSCMRequest;
+import org.apache.hadoop.hdds.scm.ScmUpgradeConfig;
 import org.apache.hadoop.hdds.scm.metadata.DBTransactionBuffer;
 import org.apache.hadoop.hdds.scm.metadata.SCMDBTransactionBufferImpl;
 import org.apache.hadoop.hdds.scm.metadata.SCMMetadataStore;
 import org.apache.hadoop.hdds.scm.server.StorageContainerManager;
+import org.apache.hadoop.hdds.upgrade.HDDSLayoutFeature;
+import org.apache.hadoop.hdds.upgrade.HDDSLayoutVersionManager;
 import org.apache.hadoop.hdds.utils.HAUtils;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -34,6 +37,7 @@ import org.apache.hadoop.hdds.utils.db.DBCheckpoint;
 import org.apache.hadoop.ozone.OzoneConsts;
 import org.apache.hadoop.ozone.OzoneSecurityUtil;
 import org.apache.hadoop.hdds.ExitManager;
+import org.apache.hadoop.ozone.upgrade.UpgradeException;
 import org.apache.ratis.server.protocol.TermIndex;
 import org.apache.ratis.util.FileUtils;
 import org.slf4j.Logger;
@@ -42,6 +46,8 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
+
+import static org.apache.hadoop.ozone.OzoneConsts.LAYOUT_VERSION_KEY;
 
 /**
  * SCMHAManagerImpl uses Apache Ratis for HA implementation. We will have 2N+1
@@ -367,6 +373,38 @@ public class SCMHAManagerImpl implements SCMHAManager {
       }
       scm.getScmCertificateServer().reinitialize(metadataStore);
     }
+
+
+    Integer layoutVersionInDB = getLayoutVersionInDB();
+    HDDSLayoutVersionManager versionManager = scm.getLayoutVersionManager();
+    if (layoutVersionInDB != null &&
+        versionManager.getMetadataLayoutVersion() < layoutVersionInDB) {
+      LOG.info("New SCM snapshot received with higher layout version {}. " +
+              "Attempting to finalize current SCM to that version.",
+          layoutVersionInDB);
+      ScmUpgradeConfig uConf = conf.getObject(ScmUpgradeConfig.class);
+      scm.getUpgradeFinalizer().finalizeAndWaitForCompletion(
+          "scm-ratis-snapshot", scm,
+          uConf.getRatisBasedFinalizationTimeout());
+      if (versionManager.getMetadataLayoutVersion() < layoutVersionInDB) {
+        throw new IOException("Unable to finalize SCM to the desired layout " +
+            "version " + layoutVersionInDB + " present in the snapshot DB.");
+      } else {
+        metadataStore.getMetaTable().put(LAYOUT_VERSION_KEY,
+            String.valueOf(versionManager.getMetadataLayoutVersion()));
+      }
+    }
+  }
+
+  /**
+   *
+   * @return Gets the stored layout version from the DB meta table.
+   * @throws IOException on Error.
+   */
+  private Integer getLayoutVersionInDB() throws IOException {
+    String layoutVersion =
+        scm.getScmMetadataStore().getMetaTable().get(LAYOUT_VERSION_KEY);
+    return (layoutVersion == null) ? null : Integer.parseInt(layoutVersion);
   }
 
   @VisibleForTesting

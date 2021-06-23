@@ -18,8 +18,8 @@
 package org.apache.hadoop.hdds.scm.upgrade;
 
 import org.apache.hadoop.hdds.conf.OzoneConfiguration;
-import org.apache.hadoop.hdds.scm.ScmConfig;
 import org.apache.hadoop.hdds.scm.ScmConfigKeys;
+import org.apache.hadoop.hdds.scm.ScmUpgradeConfig;
 import org.apache.hadoop.hdds.scm.TestUtils;
 import org.apache.hadoop.hdds.scm.server.StorageContainerManager;
 import org.apache.hadoop.hdds.upgrade.HDDSLayoutFeature;
@@ -93,7 +93,7 @@ public class TestSCMHAUnfinalizedStateValidationAction {
   public void testUpgrade() throws Exception {
     // Write version file for original version.
     OzoneConfiguration conf = new OzoneConfiguration();
-    conf.setInt(ScmConfig.ConfigStrings.HDDS_SCM_INIT_DEFAULT_LAYOUT_VERSION,
+    conf.setInt(ScmUpgradeConfig.ConfigStrings.HDDS_SCM_INIT_DEFAULT_LAYOUT_VERSION,
         HDDSLayoutFeature.INITIAL_VERSION.layoutVersion());
     conf.setBoolean(ScmConfigKeys.OZONE_SCM_HA_ENABLE_KEY, haEnabledBefore);
     conf.set(ScmConfigKeys.OZONE_SCM_DB_DIRS, dataPath);

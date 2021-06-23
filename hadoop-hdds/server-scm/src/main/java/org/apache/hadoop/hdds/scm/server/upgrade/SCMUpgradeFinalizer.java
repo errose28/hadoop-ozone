@@ -19,16 +19,23 @@
 package org.apache.hadoop.hdds.scm.server.upgrade;
 
 import static org.apache.hadoop.hdds.scm.pipeline.Pipeline.PipelineState.CLOSED;
+import static org.apache.hadoop.ozone.OzoneConsts.LAYOUT_VERSION_KEY;
 
 import java.io.IOException;
 
+import com.google.common.base.Optional;
+import jdk.nashorn.internal.runtime.regexp.joni.Syntax;
 import org.apache.hadoop.hdds.client.ReplicationConfig;
 import org.apache.hadoop.hdds.protocol.proto.HddsProtos;
+import org.apache.hadoop.hdds.scm.metadata.DBTransactionBuffer;
 import org.apache.hadoop.hdds.scm.pipeline.Pipeline;
 import org.apache.hadoop.hdds.scm.pipeline.PipelineManager;
 import org.apache.hadoop.hdds.scm.server.StorageContainerManager;
 import org.apache.hadoop.hdds.upgrade.HDDSLayoutFeature;
 import org.apache.hadoop.hdds.upgrade.HDDSLayoutVersionManager;
+import org.apache.hadoop.hdds.utils.db.Table;
+import org.apache.hadoop.hdds.utils.db.cache.CacheKey;
+import org.apache.hadoop.hdds.utils.db.cache.CacheValue;
 import org.apache.hadoop.ozone.common.Storage;
 import org.apache.hadoop.ozone.upgrade.BasicUpgradeFinalizer;
 import org.apache.hadoop.ozone.upgrade.UpgradeException;
@@ -39,8 +46,16 @@ import org.apache.hadoop.ozone.upgrade.UpgradeException;
 public class SCMUpgradeFinalizer extends
     BasicUpgradeFinalizer<StorageContainerManager, HDDSLayoutVersionManager> {
 
-  public SCMUpgradeFinalizer(HDDSLayoutVersionManager versionManager) {
+  private final HDDSLayoutVersionManager versionManager;
+  private final DBTransactionBuffer buffer;
+  private final Table<String, String> metaTable;
+
+  public SCMUpgradeFinalizer(HDDSLayoutVersionManager versionManager,
+      DBTransactionBuffer buffer, Table<String, String> metaTable) {
     super(versionManager);
+    this.versionManager = versionManager;
+    this.buffer = buffer;
+    this.metaTable = metaTable;
   }
 
   // This should be called in the context of a separate finalize upgrade thread.
@@ -83,6 +98,14 @@ public class SCMUpgradeFinalizer extends
   public void finalizeUpgrade(StorageContainerManager scm)
       throws UpgradeException {
     super.finalizeUpgrade(scm::getScmStorageConfig);
+    try {
+      buffer.addToBuffer(metaTable, LAYOUT_VERSION_KEY,
+          String.valueOf(versionManager.getMetadataLayoutVersion()));
+    } catch (IOException ex) {
+      throw new UpgradeException("Failed to persist layout version to " +
+          "database", ex,
+          UpgradeException.ResultCodes.UPDATE_LAYOUT_VERSION_FAILED);
+    }
   }
 
   public void postFinalizeUpgrade(StorageContainerManager scm)

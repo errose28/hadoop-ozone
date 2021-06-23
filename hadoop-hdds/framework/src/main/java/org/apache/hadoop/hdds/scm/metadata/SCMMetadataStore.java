@@ -147,4 +147,10 @@ public interface SCMMetadataStore extends DBStoreHAManager {
    * Table that maintains sequence id information.
    */
   Table<String, Long> getSequenceIdTable();
+
+  /**
+   * Table that miscellaneous SCM information, including the metadata layout
+   * version to be shared via Ratis.
+   */
+  Table<String, String> getMetaTable();
 }

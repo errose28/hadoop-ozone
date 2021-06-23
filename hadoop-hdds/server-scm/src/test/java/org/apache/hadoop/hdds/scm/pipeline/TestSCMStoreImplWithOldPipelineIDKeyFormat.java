@@ -149,6 +149,11 @@ public class TestSCMStoreImplWithOldPipelineIDKeyFormat
     return null;
   }
 
+  @Override
+  public Table<String, String> getMetaTable() {
+    return null;
+  }
+
   /**
    * Test SCM DB Definition for the above class.
    */

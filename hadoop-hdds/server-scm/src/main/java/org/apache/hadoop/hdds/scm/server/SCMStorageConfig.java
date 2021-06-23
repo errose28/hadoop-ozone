@@ -28,7 +28,7 @@ import java.io.IOException;
 import java.util.Properties;
 import java.util.UUID;
 
-import static org.apache.hadoop.hdds.scm.ScmConfig.ConfigStrings.HDDS_SCM_INIT_DEFAULT_LAYOUT_VERSION;
+import static org.apache.hadoop.hdds.scm.ScmUpgradeConfig.ConfigStrings.HDDS_SCM_INIT_DEFAULT_LAYOUT_VERSION;
 import static org.apache.hadoop.hdds.upgrade.HDDSLayoutVersionManager.maxLayoutVersion;
 import static org.apache.hadoop.ozone.OzoneConsts.SCM_HA;
 import static org.apache.hadoop.ozone.OzoneConsts.STORAGE_DIR;

@@ -314,10 +314,6 @@ public final class StorageContainerManager extends ServiceRuntimeInfoImpl
           "failure.", ResultCodes.SCM_NOT_INITIALIZED);
     }
 
-    scmLayoutVersionManager = new HDDSLayoutVersionManager(
-        scmStorageConfig.getLayoutVersion());
-    upgradeFinalizer = new SCMUpgradeFinalizer(scmLayoutVersionManager);
-
     primaryScmNodeId = scmStorageConfig.getPrimaryScmNodeId();
     initializeCertificateClient();
 
@@ -334,6 +330,11 @@ public final class StorageContainerManager extends ServiceRuntimeInfoImpl
     // Creates the SCM DBs or opens them if it exists.
     // A valid pointer to the store is required by all the other services below.
     initalizeMetadataStore(conf, configurator);
+
+    scmLayoutVersionManager = new HDDSLayoutVersionManager(
+        scmStorageConfig.getLayoutVersion());
+    upgradeFinalizer = new SCMUpgradeFinalizer(scmLayoutVersionManager,
+        scmHAManager.getDBTransactionBuffer(), scmMetadataStore.getMetaTable());
 
     eventQueue = new EventQueue();
     serviceManager = new SCMServiceManager();

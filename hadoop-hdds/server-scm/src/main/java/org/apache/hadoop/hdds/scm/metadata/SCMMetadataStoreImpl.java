@@ -50,6 +50,7 @@ import static org.apache.hadoop.hdds.scm.metadata.SCMDBDefinition.TRANSACTIONINF
 import static org.apache.hadoop.hdds.scm.metadata.SCMDBDefinition.VALID_CERTS;
 import static org.apache.hadoop.hdds.scm.metadata.SCMDBDefinition.VALID_SCM_CERTS;
 import static org.apache.hadoop.hdds.scm.metadata.SCMDBDefinition.SEQUENCE_ID;
+import static org.apache.hadoop.hdds.scm.metadata.SCMDBDefinition.META;
 import static org.apache.hadoop.ozone.OzoneConsts.DB_TRANSIENT_MARKER;
 
 import org.apache.ratis.util.ExitUtils;
@@ -83,6 +84,8 @@ public class SCMMetadataStoreImpl implements SCMMetadataStore {
   private Table<String, Long> crlSequenceIdTable;
 
   private Table<String, Long> sequenceIdTable;
+
+  private Table<String, String> metaTable;
 
   private static final Logger LOG =
       LoggerFactory.getLogger(SCMMetadataStoreImpl.class);
@@ -166,6 +169,10 @@ public class SCMMetadataStoreImpl implements SCMMetadataStore {
       sequenceIdTable = SEQUENCE_ID.getTable(store);
 
       checkTableStatus(sequenceIdTable, SEQUENCE_ID.getName());
+
+      metaTable = META.getTable(store);
+
+      checkTableStatus(metaTable, metaTable.getName());
     }
   }
 
@@ -264,6 +271,11 @@ public class SCMMetadataStoreImpl implements SCMMetadataStore {
   @Override
   public Table<String, Long> getSequenceIdTable() {
     return sequenceIdTable;
+  }
+
+  @Override
+  public Table<String, String> getMetaTable() {
+    return metaTable;
   }
 
   private void checkTableStatus(Table table, String name) throws IOException {
