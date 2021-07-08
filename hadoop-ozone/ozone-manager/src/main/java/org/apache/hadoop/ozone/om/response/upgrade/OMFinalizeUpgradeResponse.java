@@ -25,6 +25,7 @@ import org.apache.hadoop.ozone.om.OMMetadataManager;
 import org.apache.hadoop.ozone.om.response.CleanupTableInfo;
 import org.apache.hadoop.ozone.om.response.OMClientResponse;
 import org.apache.hadoop.ozone.protocol.proto.OzoneManagerProtocolProtos;
+import org.apache.hadoop.ozone.upgrade.LayoutFeature;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -48,7 +49,7 @@ public class OMFinalizeUpgradeResponse extends OMClientResponse {
   @Override
   protected void addToDBBatch(OMMetadataManager omMetadataManager,
       BatchOperation batchOperation) throws IOException {
-    if (layoutVersionToWrite != -1) {
+    if (layoutVersionToWrite != LayoutFeature.INVALID_LAYOUT_VERSION) {
       LOG.info("Layout version to persist to DB : {}", layoutVersionToWrite);
       omMetadataManager.getMetaTable().putWithBatch(batchOperation,
           LAYOUT_VERSION_KEY,
