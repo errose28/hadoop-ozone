@@ -64,7 +64,6 @@ import org.apache.hadoop.ozone.om.upgrade.OMLayoutVersionManager;
 import org.apache.hadoop.ozone.upgrade.UpgradeFinalizer.StatusAndMessages;
 
 import org.apache.ozone.test.LambdaTestUtils;
-import org.apache.ratis.util.LifeCycle;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -92,7 +91,7 @@ public class TestUpgradeFinalization {
   public Timeout timeout = new Timeout(300000);
   private MiniOzoneHAClusterImpl cluster;
   private int omFromLayoutVersion;
-  private int scmFromLayoutVersion;
+  private int hddsFromLayoutVersion;
   private OzoneManagerProtocol omClient;
   private ContainerOperationClient scmClient;
   private ClientProtocol protocol;
@@ -120,7 +119,7 @@ public class TestUpgradeFinalization {
   public TestUpgradeFinalization(OMLayoutFeature omFromVersion,
       HDDSLayoutFeature scmFromVersion) {
     this.omFromLayoutVersion = omFromVersion.layoutVersion();
-    this.scmFromLayoutVersion = scmFromVersion.layoutVersion();
+    this.hddsFromLayoutVersion = scmFromVersion.layoutVersion();
   }
 
   /**
@@ -140,7 +139,8 @@ public class TestUpgradeFinalization {
         .setNumOfActiveSCMs(3)
         .setNumDatanodes(1)
         .setOmLayoutVersion(omFromLayoutVersion)
-        .setScmLayoutVersion(scmFromLayoutVersion)
+        .setScmLayoutVersion(hddsFromLayoutVersion)
+        .setDnLayoutVersion(hddsFromLayoutVersion)
         .build();
 
     cluster.waitForClusterToBeReady();
@@ -235,7 +235,7 @@ public class TestUpgradeFinalization {
 
     // Assert SCM Layout Version is 'fromLayoutVersion' on deploy.
     for (StorageContainerManager scm: cluster.getStorageContainerManagers()) {
-      assertTrue(checkScmLayoutVersions(scm, scmFromLayoutVersion, null));
+      assertTrue(checkScmLayoutVersions(scm, hddsFromLayoutVersion, null));
     }
 
     StatusAndMessages response =
@@ -259,7 +259,7 @@ public class TestUpgradeFinalization {
     } else {
       LOG.warn("SCMs already finalized. Full finalization not tested.");
       for (StorageContainerManager scm: cluster.getStorageContainerManagers()) {
-        assertTrue(checkScmLayoutVersions(scm, scmFromLayoutVersion, null));
+        assertTrue(checkScmLayoutVersions(scm, hddsFromLayoutVersion, null));
       }
     }
   }
@@ -386,7 +386,7 @@ public class TestUpgradeFinalization {
     } else {
       LOG.warn("SCMs already finalized. Full finalization not tested.");
       for (StorageContainerManager scm: cluster.getStorageContainerManagers()) {
-        assertTrue(checkScmLayoutVersions(scm, scmFromLayoutVersion, null));
+        assertTrue(checkScmLayoutVersions(scm, hddsFromLayoutVersion, null));
       }
 
       // Since finalization was a no-op, the original pipelines should remain

@@ -87,7 +87,8 @@ public class OMFinalizeUpgradeRequest extends OMClientRequest {
 
       int layoutVersion = LayoutFeature.INVALID_LAYOUT_VERSION;
       // Only write upgrade key to DB if finalization is required.
-      if (status == UpgradeFinalizer.Status.FINALIZATION_REQUIRED) {
+      if (status != UpgradeFinalizer.Status.ALREADY_FINALIZED &&
+          status != UpgradeFinalizer.Status.FINALIZATION_DONE) {
         OMMetadataManager omMetadataManager = ozoneManager.getMetadataManager();
         layoutVersion =
             ozoneManager.getVersionManager().getMetadataLayoutVersion();
