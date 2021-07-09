@@ -26,14 +26,13 @@ import static org.apache.hadoop.ozone.upgrade.UpgradeFinalizer.Status.FINALIZATI
 import static org.apache.ozone.test.GenericTestUtils.waitFor;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeoutException;
@@ -100,6 +99,11 @@ public class TestUpgradeFinalization {
   private ObjectStore objectStore;
 
   private static final String UPGRADE_CLIENT_ID = "finalize-test";
+  private static final String VOLUME = "volume";
+  private static final String BUCKET = "bucket";
+  private static final String PRE_FINALIZE_KEY = "key1";
+  private static final String POST_FINALIZE_KEY = "key2";
+  private static final int KEY_SIZE = 100;
 
   /**
    * Defines a "from" layout version to finalize from.
@@ -145,6 +149,11 @@ public class TestUpgradeFinalization {
         conf).getObjectStore();
     protocol = objectStore.getClientProxy();
     omClient = protocol.getOzoneManagerClient();
+
+    // Write test data for reading after finalization.
+    protocol.createVolume(VOLUME);
+    protocol.createBucket(VOLUME, BUCKET);
+    writeTestData(VOLUME, BUCKET, PRE_FINALIZE_KEY);
   }
 
   /**
@@ -164,20 +173,21 @@ public class TestUpgradeFinalization {
    */
   @Test
   public void testFinalization() throws Exception {
-    // TODO: Clean up key reads/writes.
-    protocol.createVolume("vol1");
-    protocol.createBucket("vol1", "bucket1");
-    writeTestData("vol1", "bucket1", "key1");
-
     finalizeOM();
     finalizeScm();
 
-    OzoneInputStream stream = protocol.getKey("vol1", "bucket1","key1");
-    assertEquals(100, stream.available());
+    checkReadWriteAfterFinalize();
+  }
 
-    writeTestData("vol1", "bucket1", "key2");
-    stream = protocol.getKey("vol1", "bucket1","key2");
-    assertEquals(100, stream.available());
+  private void checkReadWriteAfterFinalize() throws Exception {
+    OzoneInputStream stream = protocol.getKey(VOLUME, BUCKET, PRE_FINALIZE_KEY);
+    assertEquals(KEY_SIZE, stream.available());
+    stream.close();
+
+    writeTestData(VOLUME, BUCKET, POST_FINALIZE_KEY);
+    stream = protocol.getKey(VOLUME, BUCKET, POST_FINALIZE_KEY);
+    assertEquals(KEY_SIZE, stream.available());
+    stream.close();
   }
 
   private void writeTestData(String volumeName,
@@ -203,9 +213,9 @@ public class TestUpgradeFinalization {
         omClient.finalizeUpgrade(UPGRADE_CLIENT_ID);
     logStatusAndMessages(response);
 
+    waitForOMFinalization();
     if (!response.status().equals(ALREADY_FINALIZED)) {
-      waitForOMFinalization();
-
+      // Layout version only written to DB if finalization was necessary.
       for (OzoneManager om: cluster.getOzoneManagersList()) {
         int lv = OMLayoutVersionManager.maxLayoutVersion();
         LambdaTestUtils.await(30000, 3000,
@@ -220,6 +230,7 @@ public class TestUpgradeFinalization {
   }
 
   private void finalizeScm() throws Exception {
+    waitFor(() -> getPipelineIDs().size() >= 1, 500, 5000);
     Set<String> pipelineIDs = getPipelineIDs();
 
     // Assert SCM Layout Version is 'fromLayoutVersion' on deploy.
@@ -231,9 +242,9 @@ public class TestUpgradeFinalization {
         scmClient.finalizeScmUpgrade(UPGRADE_CLIENT_ID);
     logStatusAndMessages(response);
 
+    waitForScmFinalization();
     if (!response.status().equals(ALREADY_FINALIZED)) {
-      waitForScmFinalization();
-
+      // Layout version only written to DB if finalization was necessary.
       for (StorageContainerManager scm: cluster.getStorageContainerManagers()) {
         int lv = HDDSLayoutVersionManager.maxLayoutVersion();
         LambdaTestUtils.await(30000, 3000,
@@ -241,6 +252,7 @@ public class TestUpgradeFinalization {
       }
 
       Set<String> newPipelineIDs = getPipelineIDs();
+      assertFalse(newPipelineIDs.isEmpty());
       for (String id: pipelineIDs) {
         assertFalse(newPipelineIDs.contains(id));
       }
@@ -256,6 +268,8 @@ public class TestUpgradeFinalization {
   public void testFinalizationWithOneNodeDown() throws Exception {
     finalizeOMWithOneDown();
     finalizeScmWithOneDown();
+
+    checkReadWriteAfterFinalize();
   }
 
   private void finalizeOMWithOneDown() throws Exception {
@@ -270,34 +284,36 @@ public class TestUpgradeFinalization {
     // OMs.
     long prepareIndex = omClient.prepareOzoneManager(120L, 5L);
     assertClusterPrepared(prepareIndex, runningOms);
+    omClient.cancelOzoneManagerPrepare();
 
     StatusAndMessages response =
         omClient.finalizeUpgrade(UPGRADE_CLIENT_ID);
     logStatusAndMessages(response);
 
+    waitForOMFinalization();
+    cluster.restartOzoneManager(downedOM, true);
+
+    // TODO: Determine if this is necessary.
+//    try {
+//      waitFor(() -> downedOM.getOmRatisServer()
+//              .getOmStateMachine().getLifeCycleState().isPausingOrPaused(),
+//          1000, 60000);
+//    } catch (TimeoutException timeEx) {
+//      LifeCycle.State state = downedOM.getOmRatisServer()
+//          .getOmStateMachine().getLifeCycle().getCurrentState();
+//      if (state != LifeCycle.State.RUNNING) {
+//        Assert.fail("OM State Machine State expected to be in RUNNING state.");
+//      }
+//    }
+//
+//    waitFor(() -> {
+//      LifeCycle.State lifeCycleState = downedOM.getOmRatisServer()
+//          .getOmStateMachine().getLifeCycle().getCurrentState();
+//      return !lifeCycleState.isPausingOrPaused();
+//    }, 1000, 60000);
+
     if (!response.status().equals(ALREADY_FINALIZED)) {
-      waitForOMFinalization();
-      cluster.restartOzoneManager(downedOM, true);
-
-      try {
-        waitFor(() -> downedOM.getOmRatisServer()
-                .getOmStateMachine().getLifeCycleState().isPausingOrPaused(),
-            1000, 60000);
-      } catch (TimeoutException timeEx) {
-        LifeCycle.State state = downedOM.getOmRatisServer()
-            .getOmStateMachine().getLifeCycle().getCurrentState();
-        if (state != LifeCycle.State.RUNNING) {
-          Assert.fail("OM State Machine State expected to be in RUNNING state.");
-        }
-      }
-
-      waitFor(() -> {
-        LifeCycle.State lifeCycleState = downedOM.getOmRatisServer()
-            .getOmStateMachine().getLifeCycle().getCurrentState();
-        return !lifeCycleState.isPausingOrPaused();
-      }, 1000, 60000);
-
-
+      // Layout version only written to DB if finalization was necessary.
       for (OzoneManager om : cluster.getOzoneManagersList()) {
         int lv = OMLayoutVersionManager.maxLayoutVersion();
         LambdaTestUtils.await(30000, 3000,
@@ -312,46 +328,48 @@ public class TestUpgradeFinalization {
   }
 
   private void finalizeScmWithOneDown() throws Exception {
+    waitFor(() -> getPipelineIDs().size() >= 1, 500, 5000);
     Set<String> pipelineIDs = getPipelineIDs();
 
     // TODO: Test with snapshot (without prepare, currently only testing
     //  normal apply).
-    List<StorageContainerManager> runningScms =
-        cluster.getStorageContainerManagersList();
     final int shutdownScmIndex = 2;
     StorageContainerManager downedScm =
         cluster.getStorageContainerManager(shutdownScmIndex);
+    // Also removes the SCM from the list of SCMs.
     cluster.shutdownStorageContainerManager(downedScm);
+    // TODO: Find equivalent check.
 //    Assert.assertFalse(downedScm.isRunning());
-    Assert.assertEquals(runningScms.remove(shutdownScmIndex), downedScm);
 
     StatusAndMessages response =
         scmClient.finalizeScmUpgrade(UPGRADE_CLIENT_ID);
     logStatusAndMessages(response);
 
-    if (response.status().equals(ALREADY_FINALIZED)) {
-      waitForScmFinalization();
-      cluster.restartStorageContainerManager(downedScm, true);
+    waitForScmFinalization();
+    cluster.restartStorageContainerManager(downedScm, true);
 
-      try {
-        waitFor(() -> downedScm.getScmHAManager().getRatisServer()
-                .getSCMStateMachine().getLifeCycleState().isPausingOrPaused(),
-            1000, 60000);
-      } catch (TimeoutException timeEx) {
-        LifeCycle.State state = downedScm.getScmHAManager().getRatisServer()
-            .getSCMStateMachine().getLifeCycle().getCurrentState();
-        if (state != LifeCycle.State.RUNNING) {
-          Assert.fail("SCM State Machine State expected to be in RUNNING state.");
-        }
-      }
+    // TODO: Determine if this is necessary.
+//    try {
+//      waitFor(() -> downedScm.getScmHAManager().getRatisServer()
+//              .getSCMStateMachine().getLifeCycleState().isPausingOrPaused(),
+//          1000, 60000);
+//    } catch (TimeoutException timeEx) {
+//      LifeCycle.State state = downedScm.getScmHAManager().getRatisServer()
+//          .getSCMStateMachine().getLifeCycle().getCurrentState();
+//      if (state != LifeCycle.State.RUNNING) {
+//        Assert.fail("SCM State Machine State expected to be in RUNNING state.");
+//      }
+//    }
+//
+//    waitFor(() -> {
+//      LifeCycle.State lifeCycleState = downedScm.getScmHAManager()
+//          .getRatisServer().getSCMStateMachine().getLifeCycle()
+//          .getCurrentState();
+//      return !lifeCycleState.isPausingOrPaused();
+//    }, 1000, 60000);
 
-      waitFor(() -> {
-        LifeCycle.State lifeCycleState = downedScm.getScmHAManager()
-            .getRatisServer().getSCMStateMachine().getLifeCycle()
-            .getCurrentState();
-        return !lifeCycleState.isPausingOrPaused();
-      }, 1000, 60000);
-
+    if (!response.status().equals(ALREADY_FINALIZED)) {
+      // Layout version only written to DB if finalization was necessary.
       for (StorageContainerManager scm :
           cluster.getStorageContainerManagersList()) {
         int lv = HDDSLayoutVersionManager.maxLayoutVersion();
@@ -359,6 +377,8 @@ public class TestUpgradeFinalization {
             () -> checkScmLayoutVersions(scm, lv, Integer.toString(lv)));
       }
 
+      // Before finalization all pipelines should have been closed and we
+      // should have at least one new pipeline after finalization.
       Set<String> newPipelineIDs = getPipelineIDs();
       for (String id: pipelineIDs) {
         assertFalse(newPipelineIDs.contains(id));
@@ -367,6 +387,14 @@ public class TestUpgradeFinalization {
       LOG.warn("SCMs already finalized. Full finalization not tested.");
       for (StorageContainerManager scm: cluster.getStorageContainerManagers()) {
         assertTrue(checkScmLayoutVersions(scm, scmFromLayoutVersion, null));
+      }
+
+      // Since finalization was a no-op, the original pipelines should remain
+      // intact.
+      Set<String> newPipelineIDs = getPipelineIDs();
+      assertFalse(newPipelineIDs.isEmpty());
+      for (String id: pipelineIDs) {
+        assertTrue(newPipelineIDs.contains(id));
       }
     }
   }
@@ -405,7 +433,7 @@ public class TestUpgradeFinalization {
     waitForFinalization(() -> {
       try {
         return omClient.queryUpgradeFinalizationProgress(UPGRADE_CLIENT_ID,
-            false, false);
+            false, true);
       } catch (IOException e) {
         Assert.fail(e.getMessage());
         return null;
@@ -418,7 +446,7 @@ public class TestUpgradeFinalization {
     waitForFinalization(() -> {
       try {
         return scmClient.queryUpgradeFinalizationProgress(UPGRADE_CLIENT_ID,
-            false, false);
+            false, true);
       } catch (IOException e) {
         Assert.fail(e.getMessage());
         return null;
@@ -431,7 +459,8 @@ public class TestUpgradeFinalization {
     waitFor(() -> {
       StatusAndMessages statusAndMessages = finalizationCheck.get();
       logStatusAndMessages(statusAndMessages);
-      return statusAndMessages.status().equals(FINALIZATION_DONE);
+      return statusAndMessages.status().equals(FINALIZATION_DONE) ||
+          statusAndMessages.status().equals(ALREADY_FINALIZED);
     }, 2000, 20000);
   }
 
@@ -446,7 +475,8 @@ public class TestUpgradeFinalization {
     String dbLv =
         om.getMetadataManager().getMetaTable().get(LAYOUT_VERSION_KEY);
     LOG.info("OM {} MLV: {} DB layout version: {}", om.getOMNodeId(), lv, dbLv);
-    return (mlv == lv) && (dbValue.equals(dbLv));
+
+    return (mlv == lv) && Objects.equals(dbValue, dbLv);
   }
 
   private boolean checkScmLayoutVersions(StorageContainerManager scm, int mlv,
@@ -456,7 +486,7 @@ public class TestUpgradeFinalization {
         scm.getScmMetadataStore().getMetaTable().get(LAYOUT_VERSION_KEY);
     LOG.info("SCM {} MLV: {} DB layout version: {}", scm.getSCMNodeId(), lv,
         dbLv);
-    return (mlv == lv) && (dbValue.equals(dbLv));
+    return (mlv == lv) && Objects.equals(dbValue, dbLv);
   }
 
   private Set<String> getPipelineIDs() {
@@ -469,7 +499,6 @@ public class TestUpgradeFinalization {
 
     Set<String> pipelineIDs =
         pipelines.stream().map(p -> p.getId().toString()).collect(Collectors.toSet());
-    Assert.assertTrue(pipelineIDs.size() >= 1);
     return pipelineIDs;
   }
 }
