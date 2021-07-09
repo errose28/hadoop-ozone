@@ -333,8 +333,6 @@ public final class StorageContainerManager extends ServiceRuntimeInfoImpl
 
     scmLayoutVersionManager = new HDDSLayoutVersionManager(
         scmStorageConfig.getLayoutVersion());
-    upgradeFinalizer = new SCMUpgradeFinalizer(scmLayoutVersionManager,
-        scmHAManager.getDBTransactionBuffer(), scmMetadataStore.getMetaTable());
 
     eventQueue = new EventQueue();
     serviceManager = new SCMServiceManager();
@@ -345,6 +343,9 @@ public final class StorageContainerManager extends ServiceRuntimeInfoImpl
     commandWatcherLeaseManager = new LeaseManager<>("CommandWatcher",
         watcherTimeout);
     initializeSystemManagers(conf, configurator);
+
+    upgradeFinalizer = new SCMUpgradeFinalizer(scmLayoutVersionManager,
+        scmHAManager.getDBTransactionBuffer(), scmMetadataStore.getMetaTable());
 
     // Authenticate SCM if security is enabled, this initialization can only
     // be done after the metadata store is initialized.

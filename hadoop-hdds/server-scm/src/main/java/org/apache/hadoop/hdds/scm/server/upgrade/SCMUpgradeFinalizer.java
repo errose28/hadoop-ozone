@@ -28,6 +28,7 @@ import jdk.nashorn.internal.runtime.regexp.joni.Syntax;
 import org.apache.hadoop.hdds.client.ReplicationConfig;
 import org.apache.hadoop.hdds.protocol.proto.HddsProtos;
 import org.apache.hadoop.hdds.scm.metadata.DBTransactionBuffer;
+import org.apache.hadoop.hdds.scm.metadata.Replicate;
 import org.apache.hadoop.hdds.scm.pipeline.Pipeline;
 import org.apache.hadoop.hdds.scm.pipeline.PipelineManager;
 import org.apache.hadoop.hdds.scm.server.StorageContainerManager;
@@ -95,6 +96,7 @@ public class SCMUpgradeFinalizer extends
   }
 
   @Override
+  @Replicate
   public void finalizeUpgrade(StorageContainerManager scm)
       throws UpgradeException {
     super.finalizeUpgrade(scm::getScmStorageConfig);
@@ -119,18 +121,27 @@ public class SCMUpgradeFinalizer extends
 
     PipelineManager pipelineManager = scm.getPipelineManager();
 
+    ReplicationConfig configToWaitFor;
+    if (scm.getNodeCount(null) <
+        HddsProtos.ReplicationFactor.THREE_VALUE) {
+      configToWaitFor =
+          ReplicationConfig.fromTypeAndFactor(HddsProtos.ReplicationType.RATIS,
+              HddsProtos.ReplicationFactor.ONE);
+    } else {
+      configToWaitFor =
+          ReplicationConfig.fromTypeAndFactor(HddsProtos.ReplicationType.RATIS,
+              HddsProtos.ReplicationFactor.THREE);
+    }
+
     pipelineManager.resumePipelineCreation();
 
     // Wait for at least one pipeline to be created before finishing
     // finalization, so clients can write.
     boolean hasPipeline = false;
     while (!hasPipeline) {
-      ReplicationConfig ratisThree =
-          ReplicationConfig.fromTypeAndFactor(HddsProtos.ReplicationType.RATIS,
-          HddsProtos.ReplicationFactor.THREE);
       int pipelineCount =
-          pipelineManager.getPipelines(ratisThree, Pipeline.PipelineState.OPEN)
-              .size();
+          pipelineManager.getPipelines(configToWaitFor,
+              Pipeline.PipelineState.OPEN).size();
 
       hasPipeline = (pipelineCount >= 1);
       if (!hasPipeline) {
